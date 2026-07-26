@@ -1,0 +1,102 @@
+# Python bytecode and native extensions
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Packaging and build outputs
+build/
+dist/
+site/
+*.egg-info/
+*.egg
+.eggs/
+pip-wheel-metadata/
+
+# Test, coverage, and analysis caches
+.cache/
+.uv-cache/
+.coverage
+.coverage.*
+coverage.xml
+junit.xml
+htmlcov/
+.hypothesis/
+.mypy_cache/
+.nox/
+.pytest_cache/
+.pyre/
+.pyright/
+.ruff_cache/
+.tox/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Warp and Newton runtime caches
+.warp/
+warp_cache/
+kernel_cache/
+
+# Generated simulation and profiling output
+/output.usd
+/output.usda
+/output.usdc
+/output/
+/outputs/
+/captures/
+/recordings/
+*.rrd
+*.prof
+*.lprof
+*.nsys-rep
+*.qdrep
+*.sqlite
+*.trace
+
+# Viewer and GUI state
+imgui.ini
+imgui_log.txt
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+core
+core.*
+*.dmp
+*.pid
+
+# Environment files and local secrets
+.env
+.env.*
+!.env.example
+
+# Editors and IDEs
+.idea/
+.vscode/
+.fleet/
+.zed/
+*.code-workspace
+
+# Operating system metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Thumbs.db
+Desktop.ini
+
+# Local planning documents
+.superpowers/
