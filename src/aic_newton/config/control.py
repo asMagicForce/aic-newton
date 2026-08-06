@@ -6,9 +6,9 @@ from math import hypot, isfinite, radians
 
 @dataclass(frozen=True)
 class RobotControlConfig:
-    """Configure the UR5e and Hand-E position controllers."""
+    """Configure the UR10e and Hand-E position controllers."""
 
-    home_q: tuple[float, ...] = (-0.1597, -1.3542, -1.6648, -1.6933, 1.5710, 1.4110)
+    home_q: tuple[float, ...] = (-0.05494383, -1.04843700, -2.21455836, -1.44928396, 1.57098973, 1.51575613)
     arm_target_ke: tuple[float, ...] = (200.0, 200.0, 200.0, 100.0, 100.0, 100.0)
     arm_target_kd: tuple[float, ...] = (
         56.5685424949,
@@ -18,7 +18,7 @@ class RobotControlConfig:
         21.2132034356,
         21.2132034356,
     )
-    arm_effort_limit: tuple[float, ...] = (150.0, 150.0, 150.0, 28.0, 28.0, 28.0)
+    arm_effort_limit: tuple[float, ...] = (330.0, 330.0, 150.0, 54.0, 54.0, 54.0)
     gripper_initial_q: float = 0.0073
     gripper_open_q: float = 0.025
     gripper_closed_q: float = 0.0073
@@ -93,8 +93,10 @@ class AutomaticInsertionConfig:
     tcp_orientation_tolerance_rad: float = radians(5.0)
     grasp_translation_tolerance_m: float = 0.008
     grasp_orientation_tolerance_rad: float = radians(8.0)
-    seat_translation_tolerance_m: float = 0.003
-    seat_orientation_tolerance_rad: float = radians(3.0)
+    alignment_translation_tolerance_m: float = 0.001
+    alignment_orientation_tolerance_rad: float = radians(1.0)
+    seat_translation_tolerance_m: float = 0.001
+    seat_orientation_tolerance_rad: float = radians(1.0)
     state_timeout_margin: float = 10.0
     gripper_position_tolerance_m: float = 0.001
     # These are relative geometry/path distances, not absolute world heights.

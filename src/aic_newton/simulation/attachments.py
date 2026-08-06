@@ -29,6 +29,7 @@ class DynamicCableHandles:
     sfp_body: int
     sc_body: int
     cable_bodies: tuple[int, ...]
+    cable_half_lengths: tuple[float, ...]
     sfp_root_joint: int
     mount_anchor_body: int
     seat_anchor_body: int

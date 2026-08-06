@@ -250,6 +250,9 @@ def _add_dynamic_cable(
     """Build cable 0 as one dynamic connector-and-rod articulation."""
     assembly_shape_start = builder.shape_count
     cable_points = [wp.vec3(*point) for point in assembly.centerline]
+    cable_half_lengths = tuple(
+        0.5 * float(wp.length(end - start)) for start, end in zip(cable_points[:-1], cable_points[1:], strict=True)
+    )
     cable_quaternions = newton.utils.create_parallel_transport_cable_quaternions(cable_points)
     sfp_pose = transform_from_components(assembly.lc_plug_xyz, assembly.lc_plug_quat_xyzw)
     sc_pose = transform_from_components(assembly.sc_plug_xyz, assembly.sc_plug_quat_xyzw)
@@ -442,6 +445,7 @@ def _add_dynamic_cable(
         sfp_body=sfp_body,
         sc_body=sc_body,
         cable_bodies=tuple(cable_bodies),
+        cable_half_lengths=cable_half_lengths,
         sfp_root_joint=root_joint,
         mount_anchor_body=mount_anchor_body,
         seat_anchor_body=seat_anchor_body,

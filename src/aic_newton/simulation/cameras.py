@@ -11,9 +11,9 @@ from ..config import CAMERA
 from ..utils.labels import find_label_index
 
 CAMERA_BODY_SUFFIXES = (
-    "left_camera/optical",
-    "center_camera/optical",
-    "right_camera/optical",
+    "camera_left_optical",
+    "camera_center_optical",
+    "camera_right_optical",
 )
 CAMERA_OPTICAL_TO_NEWTON = wp.transform(
     wp.vec3(0.0),
@@ -90,14 +90,34 @@ def position_camera_window(imgui) -> None:
     imgui.set_window_pos(CAMERA.panel_name, imgui.ImVec2(*position))
 
 
-class CameraPanel:
-    """Render the three wrist cameras into one Viewer image panel."""
+class CameraSensor:
+    """Render three synchronized wrist-camera images independently of a Viewer."""
 
-    def __init__(self, model: newton.Model, viewer, *, simulation_rate: int):
+    def __init__(
+        self,
+        model: newton.Model,
+        *,
+        simulation_rate: int,
+        width: int = CAMERA.width_px,
+        height: int = CAMERA.height_px,
+        camera_rate: int = CAMERA.update_rate_hz,
+        viewer=None,
+        initial_state: newton.State | None = None,
+    ):
         self.model = model
         self.viewer = viewer
         self.simulation_rate = simulation_rate
+        self.width = width
+        self.height = height
+        self.camera_rate = camera_rate
         self.frame = 0
+        if width <= 0 or height <= 0 or camera_rate <= 0:
+            raise ValueError("camera dimensions and rate must be positive")
+        if simulation_rate % camera_rate:
+            raise ValueError("camera rate must divide the simulation rate")
+        if initial_state is not None:
+            self.model.bvh_build_shapes(initial_state)
+            self.model.bvh_build_particles(initial_state)
 
         camera_count = len(CAMERA_BODY_SUFFIXES)
         camera_bodies = [find_label_index(model.body_label, suffix) for suffix in CAMERA_BODY_SUFFIXES]
@@ -113,21 +133,21 @@ class CameraPanel:
             default_render_config=camera_render_config(),
         )
         self.sensor.utils.create_default_light(enable_shadows=False)
-        fov = vertical_fov(CAMERA.horizontal_fov_rad, CAMERA.width_px, CAMERA.height_px)
+        fov = vertical_fov(CAMERA.horizontal_fov_rad, width, height)
         self.rays = self.sensor.utils.compute_camera_rays_pinhole(
-            CAMERA.width_px,
-            CAMERA.height_px,
+            width,
+            height,
             camera_fovs=[fov] * camera_count,
         )
         wp.launch(
             apply_camera_near_clip,
-            dim=(camera_count, CAMERA.height_px, CAMERA.width_px),
+            dim=(camera_count, height, width),
             inputs=[CAMERA.near_clip_m, self.rays],
             device=model.device,
         )
         self.color_image = self.sensor.utils.create_color_image_output(
-            CAMERA.width_px,
-            CAMERA.height_px,
+            width,
+            height,
             camera_count,
         )
         self.rgba = self.sensor.utils.to_rgba_from_color(self.color_image)
@@ -136,15 +156,22 @@ class CameraPanel:
         """Restart the sensor update cadence."""
         self.frame = 0
 
-    def render(self, state: newton.State) -> None:
-        """Render and publish images when the configured update is due."""
+    def render(self, state: newton.State) -> np.ndarray | None:
+        """Return one contiguous left/center/right RGB set when an update is due."""
         if not camera_update_due(
             self.frame,
             simulation_rate=self.simulation_rate,
-            camera_rate=CAMERA.update_rate_hz,
+            camera_rate=self.camera_rate,
         ):
             self.frame += 1
-            return
+            return None
+
+        images = self.render_now(state)
+        self.frame += 1
+        return images
+
+    def render_now(self, state: newton.State) -> np.ndarray:
+        """Render one coherent frame set without applying an internal cadence."""
 
         wp.launch(
             update_camera_transforms,
@@ -165,8 +192,22 @@ class CameraPanel:
             self.rays,
             color_image=self.color_image,
         )
-        log_camera_images(self.viewer, self.rgba)
-        self.frame += 1
+        rgba = self.rgba.numpy()
+        rgb = np.ascontiguousarray(rgba[..., :3])
+        if np.issubdtype(rgb.dtype, np.floating):
+            rgb = np.asarray(np.clip(rgb, 0.0, 1.0) * 255.0, dtype=np.uint8)
+        elif rgb.dtype != np.uint8:
+            rgb = rgb.astype(np.uint8)
+        if self.viewer is not None:
+            log_camera_images(self.viewer, rgba)
+        return rgb
+
+
+class CameraPanel(CameraSensor):
+    """Backward-compatible Viewer client for the standalone demo."""
+
+    def __init__(self, model: newton.Model, viewer, *, simulation_rate: int):
+        super().__init__(model, simulation_rate=simulation_rate, viewer=viewer)
 
 
 @wp.kernel

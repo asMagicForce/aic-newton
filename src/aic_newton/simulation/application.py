@@ -54,7 +54,7 @@ from .attachments import (
     VBDAttachmentOwnershipController,
 )
 from .cameras import CameraPanel, position_camera_window
-from .model import build_simulation_model
+from .model import ROBOT_ROOT_XFORM, build_simulation_model
 
 
 @wp.kernel
@@ -118,9 +118,14 @@ class Example:
         self.tool_body = components.tool_body
         self.auto_insert_collision_shapes = components.insertion_collision_shapes
         self.control = self.model.control()
+        self.external_joint_control = False
         self.state_0 = self.model.state()
         self.state_1 = self.model.state()
-        self.tcp_controller = TCPController(self.model, components.robot_path)
+        self.tcp_controller = TCPController(
+            self.model,
+            components.robot_path,
+            root_xform=ROBOT_ROOT_XFORM,
+        )
         self.collision_pipeline = newton.CollisionPipeline(self.model)
         self.contacts = self.collision_pipeline.contacts()
 
@@ -319,7 +324,8 @@ class Example:
             print(f"Automatic insertion: {previous_state.name} -> {command.state.name}")
 
     def simulate(self):
-        self.tcp_controller.step(self.control, dt=self.frame_dt)
+        if not self.external_joint_control:
+            self.tcp_controller.step(self.control, dt=self.frame_dt)
         if self.auto_enabled:
             wp.launch(
                 _write_automatic_gripper_targets,

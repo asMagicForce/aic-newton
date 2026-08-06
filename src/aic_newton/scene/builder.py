@@ -8,11 +8,10 @@ from pathlib import Path
 import newton
 import warp as wp
 
-from ..utils.labels import find_label_index as _find_label_index
-from .cable import CableReference, _body_poses_by_suffix, _geom_transform
+from .cable import CableReference, _body_poses_by_suffix
 from .cable_builder import _add_static_cables
 from .layout import SceneHandles, SceneLayout, component_placements
-from .visuals import _add_glb_visual, _add_sdf_box_colliders, _copy_visual_mesh_shapes
+from .visuals import _add_glb_visual, _add_sdf_box_colliders
 
 
 def _world_without_task_board(source: str) -> str:
@@ -156,71 +155,13 @@ def _add_task_board(
     )
 
 
-def _ur5_visual_body_xforms(
-    source: newton.ModelBuilder,
-    robot_source: str,
-) -> dict[int, wp.transform]:
-    """Map structured UR5e mesh bodies through the generated MJCF frames."""
-    visual_geoms = {
-        "base": "tabletop_fixed_joint_lump__base_link_inertia_visual",
-        "shoulder_link": "shoulder_link_visual",
-        "upper_arm_link": "upper_arm_link_visual",
-        "forearm_link": "forearm_link_visual",
-        "wrist_1_link": "wrist_1_link_visual",
-        "wrist_2_link": "wrist_2_link_visual",
-        "wrist_3_link": "wrist_3_link_visual",
-    }
-    return {
-        body: _geom_transform(robot_source, visual_geoms[label.rsplit("/", 1)[-1]])
-        for body, label in enumerate(source.body_label)
-        if label.rsplit("/", 1)[-1] in visual_geoms
-    }
-
-
-def _add_ur5_visuals(builder: newton.ModelBuilder, robot_source: str) -> None:
-    """Attach Newton's structured UR5e visuals to the imported AIC robot."""
-    asset_path = newton.utils.download_asset("universal_robots_ur5e")
-    source = newton.ModelBuilder()
-    source.add_usd(
-        str(asset_path / "usd_structured" / "ur5e.usda"),
-        hide_collision_shapes=True,
-        enable_self_collisions=False,
-    )
-    target_suffixes = {
-        "base": "tabletop",
-        "shoulder_link": "shoulder_link",
-        "upper_arm_link": "upper_arm_link",
-        "forearm_link": "forearm_link",
-        "wrist_1_link": "wrist_1_link",
-        "wrist_2_link": "wrist_2_link",
-        "wrist_3_link": "wrist_3_link",
-    }
-    body_map: dict[int, int] = {}
-    for source_body, source_label in enumerate(source.body_label):
-        source_name = source_label.rsplit("/", 1)[-1]
-        target_suffix = target_suffixes.get(source_name)
-        if target_suffix is not None:
-            body_map[source_body] = _find_label_index(builder.body_label, target_suffix)
-
-    copied = _copy_visual_mesh_shapes(
-        source,
-        builder,
-        body_map=body_map,
-        body_xforms=_ur5_visual_body_xforms(source, robot_source),
-        label_prefix="ur5e",
-    )
-    if not copied:
-        raise ValueError("Newton's UR5e asset contains no visible meshes")
-
-
-def _add_aic_visuals(
+def _add_environment_visuals(
     builder: newton.ModelBuilder,
     *,
     asset_dir: Path,
-    robot_source: str,
     scene_poses: dict[str, wp.transform],
 ) -> None:
-    """Attach AIC workcell, sensor, gripper, and robot visuals."""
+    """Attach environment visuals not included in the robot description."""
     cache: dict[Path, newton.ModelBuilder] = {}
     copied: list[int] = []
 
@@ -248,55 +189,3 @@ def _add_aic_visuals(
     floor_pose = scene_poses["floor_link"]
     add("Floor/floor_visual.glb", -1, floor_pose, "floor")
     add("Floor/walls_visual.glb", -1, floor_pose, "floor_walls")
-
-    wrist = _find_label_index(builder.body_label, "wrist_3_link")
-    tool = _find_label_index(builder.body_label, "ati/tool_link")
-    left_finger = _find_label_index(builder.body_label, "gripper/hande_finger_link_l")
-    right_finger = _find_label_index(builder.body_label, "gripper/hande_finger_link_r")
-    add(
-        "Camera Mount/cam_mount_visual.glb",
-        wrist,
-        _geom_transform(robot_source, "wrist_3_link_fixed_joint_lump__cam_mount_visual_visual_1"),
-        "camera_mount",
-    )
-    add(
-        "Axia80 M20/axia_ft_sensor_visual.glb",
-        wrist,
-        _geom_transform(robot_source, "wrist_3_link_fixed_joint_lump__axia_ft_sensor_visual_visual_3"),
-        "force_torque_sensor",
-    )
-    for camera, geom_name in (
-        ("center", "wrist_3_link_fixed_joint_lump__basler_cam_visual_visual_2"),
-        ("left", "wrist_3_link_fixed_joint_lump__basler_cam_visual_visual_4"),
-        ("right", "wrist_3_link_fixed_joint_lump__basler_cam_visual_visual_5"),
-    ):
-        add(
-            "Basler Camera/basler_cam_visual.glb",
-            wrist,
-            _geom_transform(robot_source, geom_name),
-            f"{camera}_camera",
-        )
-    add(
-        "Robotiq Hand-E/hande_base_visual.glb",
-        tool,
-        _geom_transform(robot_source, "ati/tool_link_fixed_joint_lump__hande_base_visual_visual"),
-        "gripper_base",
-    )
-    add(
-        "Robotiq Hand-E/hande_finger_visual.glb",
-        left_finger,
-        _geom_transform(
-            robot_source,
-            "gripper/hande_finger_link_l_fixed_joint_lump__hande_finger_visual_visual",
-        ),
-        "left_finger",
-    )
-    add(
-        "Robotiq Hand-E/hande_finger_visual.glb",
-        right_finger,
-        _geom_transform(
-            robot_source,
-            "gripper/hande_finger_link_r_fixed_joint_lump__hande_finger_visual_visual",
-        ),
-        "right_finger",
-    )

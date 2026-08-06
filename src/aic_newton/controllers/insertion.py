@@ -573,8 +573,23 @@ class AutomaticInsertionController:
                     orientation_tolerance=AUTO_INSERTION.grasp_orientation_tolerance_rad,
                 )
             )
+        if self.state in {
+            AutoState.TRANSFER_ABOVE_PORT,
+            AutoState.ALIGN_WITH_PORT,
+        }:
+            return self._within_tolerance(
+                observation.sfp_pose,
+                self._desired_sfp_targets[self.state],
+                translation_tolerance=AUTO_INSERTION.alignment_translation_tolerance_m,
+                orientation_tolerance=AUTO_INSERTION.alignment_orientation_tolerance_rad,
+            )
         if self.state is AutoState.INSERT_TO_BOTTOM:
-            return True
+            return self._within_tolerance(
+                observation.sfp_pose,
+                self._desired_sfp_targets[AutoState.INSERT_TO_BOTTOM],
+                translation_tolerance=AUTO_INSERTION.seat_translation_tolerance_m,
+                orientation_tolerance=AUTO_INSERTION.seat_orientation_tolerance_rad,
+            )
         if self.state is AutoState.OPEN_GRIPPER:
             seated = self._within_tolerance(
                 observation.sfp_pose,

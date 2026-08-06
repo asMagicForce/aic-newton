@@ -80,6 +80,11 @@ class TestAutomaticInsertionController(unittest.TestCase):
     ):
         """Advance one state after tracking its final target."""
         start = controller.state
+        if sfp_pose is None:
+            try:
+                sfp_pose = controller.desired_sfp_target_for(controller.state)
+            except ValueError:
+                sfp_pose = self.frames.sfp_module
         command = controller.command(
             self._observation(
                 controller,
@@ -102,7 +107,7 @@ class TestAutomaticInsertionController(unittest.TestCase):
         for _ in AutoState:
             if controller.state is target:
                 return
-            self._advance(controller, sfp_pose=self.frames.sfp_module)
+            self._advance(controller)
         self.fail(f"Controller did not reach {target.name}")
 
     def test_complete_nominal_sequence_and_attachment_handoffs(self):
@@ -168,6 +173,51 @@ class TestAutomaticInsertionController(unittest.TestCase):
 
         self.assertEqual(command.state, AutoState.CLOSE_GRIPPER)
         self.assertEqual(command.attachment_mode, AttachmentMode.MOUNTED)
+
+    def test_transfer_waits_for_observed_sfp_alignment(self):
+        """Do not leave transfer when only the TCP reached its target."""
+        controller = self._controller()
+        self._advance_to(controller, AutoState.TRANSFER_ABOVE_PORT)
+        desired = controller.desired_sfp_target_for(AutoState.TRANSFER_ABOVE_PORT)
+        displaced = PoseTuple(
+            (desired.xyz[0] + 0.002, desired.xyz[1], desired.xyz[2]),
+            desired.quat_xyzw,
+        )
+
+        command = self._advance(controller, sfp_pose=displaced)
+
+        self.assertEqual(command.state, AutoState.TRANSFER_ABOVE_PORT)
+        self.assertEqual(command.attachment_mode, AttachmentMode.GRASPED)
+
+    def test_align_waits_for_observed_sfp_alignment(self):
+        """Do not start insertion while the actual module remains laterally offset."""
+        controller = self._controller()
+        self._advance_to(controller, AutoState.ALIGN_WITH_PORT)
+        desired = controller.desired_sfp_target_for(AutoState.ALIGN_WITH_PORT)
+        displaced = PoseTuple(
+            (desired.xyz[0] + 0.002, desired.xyz[1], desired.xyz[2]),
+            desired.quat_xyzw,
+        )
+
+        command = self._advance(controller, sfp_pose=displaced)
+
+        self.assertEqual(command.state, AutoState.ALIGN_WITH_PORT)
+        self.assertEqual(command.attachment_mode, AttachmentMode.GRASPED)
+
+    def test_insert_waits_for_actual_port_bottom_before_seating(self):
+        """Do not use SEATED ownership to hide an incomplete insertion."""
+        controller = self._controller()
+        self._advance_to(controller, AutoState.INSERT_TO_BOTTOM)
+        desired = controller.desired_sfp_target_for(AutoState.INSERT_TO_BOTTOM)
+        displaced = PoseTuple(
+            (desired.xyz[0] + 0.004, desired.xyz[1], desired.xyz[2]),
+            desired.quat_xyzw,
+        )
+
+        command = self._advance(controller, sfp_pose=displaced)
+
+        self.assertEqual(command.state, AutoState.INSERT_TO_BOTTOM)
+        self.assertEqual(command.attachment_mode, AttachmentMode.GRASPED)
 
     def test_fail_safely_on_timeout_or_non_finite_state(self):
         """Enter the failed hold state on timeout or non-finite observations."""

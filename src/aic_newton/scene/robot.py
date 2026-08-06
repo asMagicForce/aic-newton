@@ -1,4 +1,4 @@
-"""Configure the UR5e, Hand-E gripper, and TCP kinematics."""
+"""Configure the UR10e, Hand-E gripper, and TCP kinematics."""
 
 import newton
 import warp as wp
@@ -6,6 +6,7 @@ import warp as wp
 from ..config import ROBOT_CONTROL
 from ..utils.labels import find_label_index as _find_label_index
 
+AIC_ROBOT_MODEL = "ur10e"
 AIC_ARM_JOINT_NAMES = (
     "shoulder_pan_joint",
     "shoulder_lift_joint",
@@ -15,8 +16,8 @@ AIC_ARM_JOINT_NAMES = (
     "wrist_3_joint",
 )
 AIC_GRIPPER_JOINT_NAMES = (
-    "gripper/left_finger_joint",
-    "gripper/right_finger_joint",
+    "hande_left_finger_joint",
+    "hande_right_finger_joint",
 )
 AIC_GRIPPER_TCP_OFFSET = wp.vec3(*ROBOT_CONTROL.tcp_offset_m)
 AIC_TOOL_TO_GRIPPER_TCP = wp.transform(AIC_GRIPPER_TCP_OFFSET, wp.quat_identity())

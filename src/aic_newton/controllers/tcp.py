@@ -48,16 +48,16 @@ def _write_indexed_joint_targets(
 class TCPController:
     """Solve a persistent Cartesian TCP target into arm joint targets."""
 
-    def __init__(self, model: newton.Model, robot_path: Path):
+    def __init__(self, model: newton.Model, robot_path: Path, *, root_xform=None):
         self.model = model
         builder = newton.ModelBuilder()
-        builder.add_mjcf(
+        builder.add_urdf(
             str(robot_path),
-            parse_meshes=False,
-            parse_visuals=False,
-            parse_sites=False,
+            xform=root_xform,
+            hide_visuals=True,
             enable_self_collisions=False,
-            skip_equality_constraints=True,
+            collapse_fixed_joints=False,
+            force_position_velocity_actuation=True,
         )
         _set_robot_home(builder)
         self.ik_model = builder.finalize(device=model.device)
@@ -69,7 +69,7 @@ class TCPController:
 
         state = self.ik_model.state()
         newton.eval_fk(self.ik_model, self.ik_model.joint_q, self.ik_model.joint_qd, state)
-        tool = find_label_index(self.ik_model.body_label, "ati/tool_link")
+        tool = find_label_index(self.ik_model.body_label, "hande_base_link")
         self.initial_target = transform_from_row(state.body_q.numpy()[tool]) * AIC_TOOL_TO_GRIPPER_TCP
         self.target = wp.transform(
             wp.transform_get_translation(self.initial_target),
