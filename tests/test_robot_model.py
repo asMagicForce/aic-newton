@@ -7,7 +7,11 @@ import numpy as np
 
 from aic_newton.scene.assets import robot_description_path
 from aic_newton.scene.robot import AIC_ARM_JOINT_NAMES, AIC_ROBOT_MODEL
-from aic_newton.simulation.model import build_robot_model, build_simulation_model
+from aic_newton.simulation.model import (
+    _add_robot_description,
+    build_robot_model,
+    build_simulation_model,
+)
 
 
 def test_default_robot_description_is_ur10e_with_canonical_chain() -> None:
@@ -37,6 +41,36 @@ def test_newton_import_exposes_ros_aligned_ur10e_state() -> None:
     )
     np.testing.assert_allclose(robot.joint_lower, (-2 * np.pi,) * 2 + (-np.pi,) + (-2 * np.pi,) * 3)
     np.testing.assert_allclose(robot.joint_upper, (2 * np.pi,) * 2 + (np.pi,) + (2 * np.pi,) * 3)
+
+
+def test_robot_import_keeps_textures_without_random_shape_tints() -> None:
+    builder = newton.ModelBuilder()
+    _add_robot_description(
+        builder,
+        path=robot_description_path(),
+        hide_visuals=False,
+    )
+
+    textured_shapes = [
+        shape
+        for shape, source in enumerate(builder.shape_source)
+        if source is not None and getattr(source, "texture", None) is not None
+    ]
+    assert textured_shapes
+    for shape in textured_shapes:
+        np.testing.assert_allclose(builder.shape_color[shape], (1.0, 1.0, 1.0))
+
+    hande_base = next(
+        index for index, label in enumerate(builder.body_label) if label.endswith("hande_base_link")
+    )
+    hande_visual = next(
+        shape
+        for shape, body in enumerate(builder.shape_body)
+        if body == hande_base
+        and builder.shape_flags[shape] & int(newton.ShapeFlags.VISIBLE)
+    )
+    assert getattr(builder.shape_source[hande_visual], "texture", None) is None
+    np.testing.assert_allclose(builder.shape_color[hande_visual], (0.4, 0.4, 0.4))
 
 
 def test_simulation_keeps_render_only_visuals_for_robot_and_tool() -> None:

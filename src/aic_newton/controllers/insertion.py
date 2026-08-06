@@ -165,6 +165,7 @@ class AutomaticInsertionController:
             tuple(frames.port_entrance.xyz[axis] - frames.port_bottom.xyz[axis] for axis in range(3)),
             field="port outward axis",
         )
+        self._port_outward_axis = port_outward_axis
         transfer_sfp = _offset_pose(
             frames.port_entrance,
             port_outward_axis,
@@ -215,6 +216,10 @@ class AutomaticInsertionController:
         self._paused_orientation_error: float | None = None
         self._paused_translation_stall_elapsed = 0.0
         self._paused_orientation_stall_elapsed = 0.0
+        self._grasp_tracking_paused = False
+        self._grasp_tracking_stall_elapsed = 0.0
+        self._grasp_refined = False
+        self._alignment_refined = False
 
     @property
     def state_duration(self) -> float:
@@ -369,6 +374,32 @@ class AutomaticInsertionController:
         states = tuple(AutoState[name] for name, _ in AUTO_INSERTION.motion_profiles)
         self._durations = self._safe_state_durations(self._targets[AutoState.HOME], states)
 
+    def _rebase_port_targets_from_observation(self, observation: AutoObservation) -> None:
+        """Compensate the narrow-port targets for the currently observed grasp transform."""
+        observed_tool_to_sfp = _compose_pose(_inverse_pose(observation.tcp_pose), observation.sfp_pose)
+        inverse_observed_tool_to_sfp = _inverse_pose(observed_tool_to_sfp)
+        for state in (
+            AutoState.TRANSFER_ABOVE_PORT,
+            AutoState.ALIGN_WITH_PORT,
+            AutoState.INSERT_TO_BOTTOM,
+            AutoState.OPEN_GRIPPER,
+            AutoState.RETRACT_FROM_PORT,
+        ):
+            self._targets[state] = _compose_pose(
+                self._desired_sfp_targets[state],
+                inverse_observed_tool_to_sfp,
+            )
+        retract_target = self._targets[AutoState.RETRACT_FROM_PORT]
+        self._targets[AutoState.LIFT_AFTER_RELEASE] = PoseTuple(
+            (
+                retract_target.xyz[0],
+                retract_target.xyz[1],
+                self._targets[AutoState.HOME].xyz[2],
+            ),
+            _downward_tool_orientation(retract_target.quat_xyzw),
+        )
+        self._targets[AutoState.COMPLETE] = self._targets[AutoState.LIFT_AFTER_RELEASE]
+
     def _gripper_target_for(self, state: AutoState) -> float:
         """Return the final gripper opening target [m]."""
         if state in {
@@ -442,6 +473,61 @@ class AutomaticInsertionController:
         self._paused_orientation_error = None
         self._paused_translation_stall_elapsed = 0.0
         self._paused_orientation_stall_elapsed = 0.0
+        self._grasp_tracking_paused = False
+        self._grasp_tracking_stall_elapsed = 0.0
+
+    def _grasp_tracking_errors(self, observation: AutoObservation) -> tuple[float, float]:
+        """Return observed tool-to-SFP errors against the captured grasp."""
+        if self._tool_to_sfp is None:
+            return 0.0, 0.0
+        actual_tool_to_sfp = _compose_pose(_inverse_pose(observation.tcp_pose), observation.sfp_pose)
+        return (
+            translation_error(actual_tool_to_sfp, self._tool_to_sfp),
+            orientation_error(actual_tool_to_sfp, self._tool_to_sfp),
+        )
+
+    def _hold_for_blocked_grasp(self, observation: AutoObservation, *, dt: float) -> AutoCommand | None:
+        """Hold insertion when contact separates the SFP from its captured grasp."""
+        if self.state is not AutoState.INSERT_TO_BOTTOM or self._tool_to_sfp is None:
+            self._grasp_tracking_paused = False
+            self._grasp_tracking_stall_elapsed = 0.0
+            return None
+
+        if self._within_tolerance(
+            observation.sfp_pose,
+            self._desired_sfp_targets[AutoState.INSERT_TO_BOTTOM],
+            translation_tolerance=AUTO_INSERTION.seat_translation_tolerance_m,
+            orientation_tolerance=AUTO_INSERTION.seat_orientation_tolerance_rad,
+        ):
+            self._grasp_tracking_paused = False
+            self._grasp_tracking_stall_elapsed = 0.0
+            return None
+
+        translation, orientation = self._grasp_tracking_errors(observation)
+        if self._grasp_tracking_paused:
+            self._grasp_tracking_stall_elapsed += dt
+        elif (
+            translation <= AUTO_INSERTION.grasp_tracking_translation_pause_error_m
+            and orientation <= AUTO_INSERTION.grasp_tracking_orientation_pause_error_rad
+        ):
+            return None
+        else:
+            self._grasp_tracking_paused = True
+            self._grasp_tracking_stall_elapsed = 0.0
+
+        self._held_tcp_target = _compose_pose(observation.sfp_pose, _inverse_pose(self._tool_to_sfp))
+
+        if self._grasp_tracking_stall_elapsed >= AUTO_INSERTION.trajectory_stall_timeout_s:
+            return self._fail(
+                f"{self.state.name}: grasp stalled with translation error {translation:.6f} m "
+                f"and orientation error {orientation:.6f} rad"
+            )
+        return AutoCommand(
+            self.state,
+            self._held_tcp_target,
+            self._held_gripper_target,
+            self.attachment_mode,
+        )
 
     @staticmethod
     def _paused_axis_stall_elapsed(
@@ -573,15 +659,32 @@ class AutomaticInsertionController:
                     orientation_tolerance=AUTO_INSERTION.grasp_orientation_tolerance_rad,
                 )
             )
-        if self.state in {
-            AutoState.TRANSFER_ABOVE_PORT,
-            AutoState.ALIGN_WITH_PORT,
-        }:
+        if self.state is AutoState.TRANSFER_ABOVE_PORT:
             return self._within_tolerance(
                 observation.sfp_pose,
                 self._desired_sfp_targets[self.state],
                 translation_tolerance=AUTO_INSERTION.alignment_translation_tolerance_m,
                 orientation_tolerance=AUTO_INSERTION.alignment_orientation_tolerance_rad,
+            )
+        if self.state is AutoState.ALIGN_WITH_PORT:
+            if not self._alignment_refined:
+                return self._within_tolerance(
+                    observation.sfp_pose,
+                    self._desired_sfp_targets[self.state],
+                    translation_tolerance=AUTO_INSERTION.alignment_translation_tolerance_m,
+                    orientation_tolerance=AUTO_INSERTION.alignment_orientation_tolerance_rad,
+                )
+            desired = self._desired_sfp_targets[self.state]
+            delta = tuple(observation.sfp_pose.xyz[axis] - desired.xyz[axis] for axis in range(3))
+            axial_error = sum(delta[axis] * self._port_outward_axis[axis] for axis in range(3))
+            lateral_error = hypot(
+                *(delta[axis] - axial_error * self._port_outward_axis[axis] for axis in range(3))
+            )
+            return (
+                abs(axial_error) <= AUTO_INSERTION.alignment_translation_tolerance_m
+                and lateral_error <= AUTO_INSERTION.preinsert_lateral_tolerance_m
+                and orientation_error(observation.sfp_pose, desired)
+                <= AUTO_INSERTION.preinsert_orientation_tolerance_rad
             )
         if self.state is AutoState.INSERT_TO_BOTTOM:
             return self._within_tolerance(
@@ -644,6 +747,19 @@ class AutomaticInsertionController:
         if not self._observation_is_finite(observation):
             return self._fail(f"{self.state.name}: non-finite observation")
 
+        if self.state is AutoState.EXTRACT_FROM_MOUNT and not self._grasp_refined:
+            # MOUNTED -> GRASPED is applied by the physics owner after the
+            # transition command.  Re-read the relation from the first
+            # post-attachment observation before deriving transport targets.
+            self._capture_tool_to_sfp(observation)
+            self._state_start = observation.tcp_pose
+            self._held_tcp_target = observation.tcp_pose
+            self._grasp_refined = True
+
+        paused_command = self._hold_for_blocked_grasp(observation, dt=dt)
+        if paused_command is not None:
+            return paused_command
+
         paused_command = self._pause_or_fail(observation, dt=dt)
         if paused_command is not None:
             return paused_command
@@ -652,10 +768,42 @@ class AutomaticInsertionController:
         command = self._command_for_current_state()
         translation = translation_error(observation.tcp_pose, self.target_pose)
         orientation = orientation_error(observation.tcp_pose, self.target_pose)
-        if self._elapsed >= self.state_duration and self._can_transition(observation):
+        state_duration_reached = self._elapsed >= self.state_duration
+        can_transition = state_duration_reached and self._can_transition(observation)
+        if (
+            state_duration_reached
+            and not can_transition
+            and self.state is AutoState.TRANSFER_ABOVE_PORT
+            and self._within_tolerance(
+                observation.tcp_pose,
+                self.target_pose,
+                translation_tolerance=AUTO_INSERTION.tcp_translation_tolerance_m,
+                orientation_tolerance=AUTO_INSERTION.tcp_orientation_tolerance_rad,
+            )
+        ):
+            self._rebase_port_targets_from_observation(observation)
+            self._state_start = observation.tcp_pose
+            self._elapsed = 0.0
+            self._reset_pause_tracking()
+            return self._command_for_current_state()
+        if can_transition:
             if self.state is AutoState.HOME:
                 self._rebase_source_targets_once(observation.sfp_pose)
             elif self.state is AutoState.CLOSE_GRIPPER:
+                self._capture_tool_to_sfp(observation)
+            elif self.state is AutoState.TRANSFER_ABOVE_PORT:
+                self._rebase_port_targets_from_observation(observation)
+            elif self.state is AutoState.ALIGN_WITH_PORT:
+                self._rebase_port_targets_from_observation(observation)
+                if not self._alignment_refined:
+                    self._alignment_refined = True
+                    self._held_tcp_target = self.target_pose
+                    return AutoCommand(
+                        self.state,
+                        self._held_tcp_target,
+                        self._held_gripper_target,
+                        self.attachment_mode,
+                    )
                 self._capture_tool_to_sfp(observation)
             self._advance_state()
             return self._command_for_current_state()

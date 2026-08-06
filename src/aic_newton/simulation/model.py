@@ -80,6 +80,7 @@ def _add_robot_description(
     xform=None,
     hide_visuals: bool = True,
 ) -> None:
+    shape_start = builder.shape_count
     builder.add_urdf(
         str(path),
         xform=xform,
@@ -88,6 +89,10 @@ def _add_robot_description(
         collapse_fixed_joints=False,
         force_position_velocity_actuation=True,
     )
+    for shape in range(shape_start, builder.shape_count):
+        source = builder.shape_source[shape]
+        if source is not None and getattr(source, "texture", None) is not None:
+            builder.shape_color[shape] = wp.vec3(1.0, 1.0, 1.0)
 
 
 def _configure_grasp_proxy(builder: newton.ModelBuilder, body: int) -> None:

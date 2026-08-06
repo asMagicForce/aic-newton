@@ -265,7 +265,6 @@ class Example:
         self.tcp_controller.set_target(transform_from_pose(command.tcp_target))
         self.auto_gripper_target.fill_(command.gripper_target)
         if command.state in {
-            AutoState.INSERT_TO_BOTTOM,
             AutoState.OPEN_GRIPPER,
             AutoState.RETRACT_FROM_PORT,
             AutoState.LIFT_AFTER_RELEASE,

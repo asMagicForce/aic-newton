@@ -95,8 +95,10 @@ class AutomaticInsertionConfig:
     grasp_orientation_tolerance_rad: float = radians(8.0)
     alignment_translation_tolerance_m: float = 0.001
     alignment_orientation_tolerance_rad: float = radians(1.0)
-    seat_translation_tolerance_m: float = 0.001
-    seat_orientation_tolerance_rad: float = radians(1.0)
+    preinsert_lateral_tolerance_m: float = 0.0001
+    preinsert_orientation_tolerance_rad: float = radians(0.1)
+    seat_translation_tolerance_m: float = 0.003
+    seat_orientation_tolerance_rad: float = radians(3.0)
     state_timeout_margin: float = 10.0
     gripper_position_tolerance_m: float = 0.001
     # These are relative geometry/path distances, not absolute world heights.
@@ -110,6 +112,8 @@ class AutomaticInsertionConfig:
     trajectory_translation_resume_error_m: float = 0.09
     trajectory_orientation_pause_error_rad: float = radians(15.0)
     trajectory_orientation_resume_error_rad: float = radians(10.0)
+    grasp_tracking_translation_pause_error_m: float = 0.0005
+    grasp_tracking_orientation_pause_error_rad: float = radians(0.25)
     trajectory_stall_timeout_s: float = 2.0
     trajectory_translation_min_progress_m_s: float = 0.002
     trajectory_orientation_min_progress_rad_s: float = radians(0.2)
@@ -122,7 +126,7 @@ class AutomaticInsertionConfig:
         ("LIFT_AFTER_EXTRACTION", MotionProfile(2.0, 0.10)),
         ("TRANSFER_ABOVE_PORT", MotionProfile(2.0, 0.10)),
         ("ALIGN_WITH_PORT", MotionProfile(2.5, 0.06)),
-        ("INSERT_TO_BOTTOM", MotionProfile(2.5, 0.04)),
+        ("INSERT_TO_BOTTOM", MotionProfile(2.5, 0.01)),
         ("OPEN_GRIPPER", MotionProfile(1.0, 0.10)),
         ("RETRACT_FROM_PORT", MotionProfile(2.0, 0.10)),
         ("LIFT_AFTER_RELEASE", MotionProfile(2.0, 0.10)),
